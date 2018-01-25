@@ -143,9 +143,9 @@ bool PageAllocator::freeBlock(u64 _block) {
   if (_block == INV || usedMap_.count(_block) < 1) {
     return false;
   }
+  Block* block = usedMap_.at(_block);
 
   // remove block from used map
-  Block* block = usedMap_.at(_block);
   usedMap_.erase(_block);
   block->used = false;
 
@@ -167,11 +167,69 @@ bool PageAllocator::freeBlock(u64 _block) {
 }
 
 bool PageAllocator::shrinkBlock(u64 _block, u64 _pages) {
-  assert(false);
+  // check if the block is a valid used block
+  if (_block == INV || usedMap_.count(_block) < 1) {
+    return false;
+  }
+  Block* block = usedMap_.at(_block);
+
+  // check easy cases
+  if (_pages > block->size) {
+    // can't grow
+    return false;
+  } else if (_pages == block->size) {
+    // can stay the same
+    return true;
+  } else if (_pages == 0) {
+    // zero is free
+    return freeBlock(_block);
+  }
+
+  // split the block
+  splitBlock(block, _pages, true);  // attempt to coalesce
+  return true;
 }
 
-u64 PageAllocator::growBlock(u64 _block, u64 _pages) {
-  assert(false);
+bool PageAllocator::growBlock(u64 _block, u64 _pages) {
+  // check if the block is a valid used block
+  if (_block == INV || usedMap_.count(_block) < 1) {
+    return false;
+  }
+  Block* block = usedMap_.at(_block);
+
+  // check easy cases
+  if (_pages < block->size) {
+    // can't shrink
+    return false;
+  } else if (_pages == block->size) {
+    // can stay the same
+    return true;
+  }
+
+  // check if the adjacent block forward is free and if the combined
+  //  space would be enough
+  Block* nextBlock = block->next;
+  if ((nextBlock == nullptr) ||
+      (nextBlock->used == true) ||
+      (block->size + nextBlock->size < _pages)) {
+    // consuming the next block won't work
+    return false;
+  }
+
+  // coalesce the next block
+  freePages_ -= nextBlock->size;
+  usedPages_ += nextBlock->size;
+  //  this unlinks, changes size, deletes, and block accounting
+  bool coalesced = coalesceBlockForward(block);
+  (void)coalesced;  // ununsed
+  assert(coalesced);
+  assert(block->size >= _pages);
+
+  // split the block
+  splitBlock(block, _pages, false);  // coalescing isn't need here
+
+  // return the block
+  return true;
 }
 
 u64 PageAllocator::totalBlocks() const {
@@ -198,7 +256,7 @@ u64 PageAllocator::usedPages() const {
   return usedPages_;
 }
 
-void PageAllocator::printBlocks() const {
+void PageAllocator::verify(bool _print) const {
   // find any block
   Block* block = nullptr;
   if (usedMap_.size() > 0) {
@@ -218,13 +276,51 @@ void PageAllocator::printBlocks() const {
     block = block->prev;
   }
 
-  // scan all blocks
+  // scan all blocks forward
+  if (_print) {
+    printf("blocks in page order:\n");
+  }
+  std::vector<Block*> forwardBlocks;
   do {
-    printf("this=0x%lX base=%lu size=%lu used=%u prev=0x%lX next=0x%lX\n",
-           block, block->base, block->size, block->used, block->prev,
-           block->next);
+    forwardBlocks.push_back(block);
+    if (_print) {
+      printf("this=0x%lX base=%lu size=%lu used=%u prev=0x%lX next=0x%lX\n",
+             (u64)block, block->base, block->size, block->used,
+             (u64)block->prev, (u64)block->next);
+    }
     block = block->next;
   } while (block != nullptr);
+  assert(forwardBlocks.size() == totalBlocks());
+
+  // scan all blocks backward, verifying
+  block = forwardBlocks.at(forwardBlocks.size() - 1);
+  do {
+    assert(block == forwardBlocks.at(forwardBlocks.size() - 1));
+    forwardBlocks.pop_back();
+    block = block->prev;
+  } while (block != nullptr);
+
+  // print free lists
+  if (_print) {
+    printf("free lists:\n");
+  }
+  for (u64 listIndex = 0; listIndex < freeLists_.size(); listIndex++) {
+    u64 listSize = freeListSizes_.at(listIndex);
+    if (_print) {
+      printf("listIndex=%lu listSize=%lu\n", listIndex, listSize);
+    }
+    const std::list<Block*>& freeList = freeLists_.at(listIndex);
+    for (auto it = freeList.cbegin(); it != freeList.cend(); ++it) {
+      Block* block = *it;
+      if (_print) {
+        printf("this=0x%lX base=%lu size=%lu used=%u prev=0x%lX next=0x%lX\n",
+               (u64)block, block->base, block->size, block->used,
+               (u64)block->prev, (u64)block->next);
+      }
+      assert(block->used == false);
+      assert(block->size <= listSize);
+    }
+  }
 }
 
 /*** private below here ***/
@@ -284,6 +380,9 @@ void PageAllocator::splitBlock(Block* _block, u64 _pages, bool _coalesce) {
     // shrink the existing used block
     _block->size = _pages;
     _block->next = freeBlock;
+    if (freeBlock->next) {
+      freeBlock->next->prev = freeBlock;
+    }
 
     // accounting
     freeBlocks_ += 1;
@@ -300,7 +399,7 @@ void PageAllocator::splitBlock(Block* _block, u64 _pages, bool _coalesce) {
   }
 }
 
-void PageAllocator::coalesceBlockForward(Block* _block) {
+bool PageAllocator::coalesceBlockForward(Block* _block) {
   // get the block next to this one in the forward direction
   Block* nextBlock = _block->next;
   if (nextBlock != nullptr && nextBlock->used == false) {
@@ -317,10 +416,12 @@ void PageAllocator::coalesceBlockForward(Block* _block) {
 
     // accouting
     freeBlocks_ -= 1;
+    return true;
   }
+  return false;
 }
 
-void PageAllocator::coalesceBlockBackward(Block* _block) {
+bool PageAllocator::coalesceBlockBackward(Block* _block) {
   // get the block previous to this one in the backward direction
   Block* prevBlock = _block->prev;
   if (prevBlock != nullptr && prevBlock->used == false) {
@@ -338,7 +439,9 @@ void PageAllocator::coalesceBlockBackward(Block* _block) {
 
     // accounting
     freeBlocks_ -= 1;
+    return true;
   }
+  return false;
 }
 
 }  // namespace palloc

@@ -43,8 +43,9 @@ namespace palloc {
 const u64 INV = U64_MAX;
 
 /*
- * This is an implementation of a segregated fit free list allocator.
- * Unlike common allocators, the metadata is stored in this case, not
+ * This is an implementation of an exponential (i.e., powers of 2), sorted
+ * (e.g., best memory utilization) segregated fit free list allocator.
+ * Unlike common allocators, the metadata is stored in this class, not
  * in the memory itself.
  */
 
@@ -62,12 +63,15 @@ class PageAllocator {
   bool freeBlock(u64 _block);
 
   // shrinks an allocated block
+  //  'pages' is the total requested size
   //  returns true if success, false otherwise
   bool shrinkBlock(u64 _block, u64 _pages);
 
   // grows an allocated block
+  //  'pages' is the total requested size
+  //  Note: this does not do any page migration
   //  returns the base page of the block if success, INV otherwise
-  u64 growBlock(u64 _block, u64 _pages);
+  bool growBlock(u64 _block, u64 _pages);
 
   // returns the total number of blocks
   u64 totalBlocks() const;
@@ -87,12 +91,12 @@ class PageAllocator {
   // returns the number of used pages
   u64 usedPages() const;
 
-  void printBlocks() const;
+  // verify internal data structures
+  void verify(bool _print) const;
 
  private:
   struct Block {
     Block(u64 _base, u64 _size, bool _used, Block* _prev, Block* _next);
-
     u64 base;  // starting page
     u64 size;  // number of pages
     bool used;
@@ -113,10 +117,12 @@ class PageAllocator {
   void splitBlock(Block* _block, u64 _pages, bool _coalesce);
 
   // this coalesces a free block in the forward direction
-  void coalesceBlockForward(Block* _block);
+  //  return true if coalescing occurred, false otherwise
+  bool coalesceBlockForward(Block* _block);
 
   // this coalesces a free block in the backward direction
-  void coalesceBlockBackward(Block* _block);
+  //  return true if coalescing occurred, false otherwise
+  bool coalesceBlockBackward(Block* _block);
 
   const u64 pages_;
   const u64 minBlockSize_;
