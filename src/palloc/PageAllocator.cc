@@ -110,10 +110,11 @@ u64 PageAllocator::createBlock(u64 _pages) {
       if (block->size >= pages) {
         newBlock = block;
         freeList.erase(it);
-        break;
+        goto found;
       }
     }
   }
+found:
 
   // detect failure to find eligible block
   if (newBlock == nullptr) {
@@ -199,8 +200,8 @@ bool PageAllocator::growBlock(u64 _block, u64 _pages) {
 
   // check easy cases
   if (_pages < block->size) {
-    // can't shrink
-    return false;
+    // can't shrink, but user might already have more than they asked for
+    return true;
   } else if (_pages == block->size) {
     // can stay the same
     return true;
@@ -281,7 +282,11 @@ void PageAllocator::verify(bool _print) const {
     printf("blocks in page order:\n");
   }
   std::vector<Block*> forwardBlocks;
+  u64 unusedCount1 = 0;
   do {
+    if (block->used == false) {
+      unusedCount1++;
+    }
     forwardBlocks.push_back(block);
     if (_print) {
       printf("this=0x%lX base=%lu size=%lu used=%u prev=0x%lX next=0x%lX\n",
@@ -304,6 +309,7 @@ void PageAllocator::verify(bool _print) const {
   if (_print) {
     printf("free lists:\n");
   }
+  u64 unusedCount2 = 0;
   for (u64 listIndex = 0; listIndex < freeLists_.size(); listIndex++) {
     u64 listSize = freeListSizes_.at(listIndex);
     if (_print) {
@@ -312,6 +318,7 @@ void PageAllocator::verify(bool _print) const {
     const std::list<Block*>& freeList = freeLists_.at(listIndex);
     for (auto it = freeList.cbegin(); it != freeList.cend(); ++it) {
       Block* block = *it;
+      unusedCount2++;
       if (_print) {
         printf("this=0x%lX base=%lu size=%lu used=%u prev=0x%lX next=0x%lX\n",
                (u64)block, block->base, block->size, block->used,
@@ -321,6 +328,7 @@ void PageAllocator::verify(bool _print) const {
       assert(block->size <= listSize);
     }
   }
+  assert(unusedCount1 == unusedCount2);
 }
 
 /*** private below here ***/
@@ -330,12 +338,14 @@ PageAllocator::Block::Block(
     : base(_base), size(_size), used(_used), prev(_prev), next(_next) {}
 
 u64 PageAllocator::freeListIndex(u64 _pages) const {
-  u64 curSize = freeListSizes_.at(0);
+  // printf("pages=%lu\n", _pages);
   for (u64 curIndex = 0; curIndex < numFreeLists_; curIndex++) {
+    u64 curSize = freeListSizes_.at(curIndex);
+    // printf("curSize=%lu\n", curSize);
     if (_pages <= curSize) {
+      // printf("found\n");
       return curIndex;
     }
-    curSize *= 2;
   }
   assert(false);
 }

@@ -33,164 +33,128 @@
 #include <gtest/gtest.h>
 #include <prim/prim.h>
 
-bool checkStats(const palloc::PageAllocator& _pa, u64 _freeBlocks,
-                u64 _usedBlocks, u64 _freePages, u64 _usedPages) {
-  u64 freeBlocks = _pa.freeBlocks();
-  u64 usedBlocks = _pa.usedBlocks();
-  u64 freePages = _pa.freePages();
-  u64 usedPages = _pa.usedPages();
-  bool pass = true;
-  if (freeBlocks != _freeBlocks) {
-    printf("freeBlocks: Act=%lu Exp=%lu\n", freeBlocks, _freeBlocks);
-    pass = false;
-  }
-  if (usedBlocks != _usedBlocks) {
-    printf("usedBlocks: Act=%lu Exp=%lu\n", usedBlocks, _usedBlocks);
-    pass = false;
-  }
-  if (freePages != _freePages) {
-    printf("freePages: Act=%lu Exp=%lu\n", freePages, _freePages);
-    pass = false;
-  }
-  if (usedPages != _usedPages) {
-    printf("usedPages: Act=%lu Exp=%lu\n", usedPages, _usedPages);
-    pass = false;
-  }
-  return pass;
-}
+#include <algorithm>
 
-
-TEST(PageAllocator, createBlock) {
+TEST(PageAllocator, full) {
   u64 b0, b1, b2, b3, b4, b5;
   bool verbose = false;
 
-  palloc::PageAllocator pa(1025, 16);
-  ASSERT_TRUE(checkStats(pa, 1, 0, 1025, 0));
-  pa.verify(verbose);
+  const u64 pages = 1025;  // don't change this!
+  for (u64 mbs = 1; mbs <= 129; mbs++) {
+    if (verbose) {
+      printf("\n\n*** MBS=%lu ***\n\n\n", mbs);
+    }
 
-  if (verbose) {
-    printf("\ncreate 0 block\n");
-  }
-  b0 = pa.createBlock(0);
-  ASSERT_EQ(b0, palloc::INV);
-  ASSERT_TRUE(checkStats(pa, 1, 0, 1025, 0));
-  pa.verify(verbose);
+    palloc::PageAllocator pa(pages, mbs);
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\ncreate 16 block\n");
-  }
-  b1 = pa.createBlock(16);
-  ASSERT_NE(b1, palloc::INV);
-  ASSERT_TRUE(checkStats(pa, 1, 1, 1009, 16));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\ncreate 0 block\n");
+    }
+    b0 = pa.createBlock(0);
+    ASSERT_EQ(b0, palloc::INV);
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\nfree 16 block\n");
-  }
-  ASSERT_TRUE(pa.freeBlock(b1));
-  ASSERT_TRUE(checkStats(pa, 1, 0, 1025, 0));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\ncreate 16 block\n");
+    }
+    b1 = pa.createBlock(16);
+    ASSERT_NE(b1, palloc::INV);
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\nfree 16 block (again)\n");
-  }
-  ASSERT_FALSE(pa.freeBlock(b1));
-  ASSERT_TRUE(checkStats(pa, 1, 0, 1025, 0));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\nfree 16 block\n");
+    }
+    ASSERT_TRUE(pa.freeBlock(b1));
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\ncreate 16 block\n");
-  }
-  b1 = pa.createBlock(16);
-  ASSERT_NE(b1, palloc::INV);
-  ASSERT_TRUE(checkStats(pa, 1, 1, 1009, 16));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\nfree 16 block (again)\n");
+    }
+    ASSERT_FALSE(pa.freeBlock(b1));
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\ncreate 64 block\n");
-  }
-  b2 = pa.createBlock(64);
-  ASSERT_NE(b2, palloc::INV);
-  ASSERT_TRUE(checkStats(pa, 1, 2, 945, 80));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\ncreate 16 block\n");
+    }
+    b1 = pa.createBlock(16);
+    ASSERT_NE(b1, palloc::INV);
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\ncreate 1 block\n");
-  }
-  b3 = pa.createBlock(1);
-  ASSERT_NE(b3, palloc::INV);
-  ASSERT_TRUE(checkStats(pa, 1, 3, 929, 96));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\ncreate 64 block\n");
+    }
+    b2 = pa.createBlock(64);
+    ASSERT_NE(b2, palloc::INV);
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\nfree 64 block\n");
-  }
-  ASSERT_TRUE(pa.freeBlock(b2));
-  ASSERT_TRUE(checkStats(pa, 2, 2, 993, 32));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\ncreate 1 block\n");
+    }
+    b3 = pa.createBlock(1);
+    ASSERT_NE(b3, palloc::INV);
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\nfree 64 block (again)\n");
-  }
-  ASSERT_FALSE(pa.freeBlock(b2));
-  ASSERT_TRUE(checkStats(pa, 2, 2, 993, 32));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\nfree 64 block\n");
+    }
+    ASSERT_TRUE(pa.freeBlock(b2));
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\ncreate 100 block\n");
-  }
-  b4 = pa.createBlock(100);
-  ASSERT_NE(b4, palloc::INV);
-  ASSERT_TRUE(checkStats(pa, 2, 3, 893, 132));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\nfree 64 block (again)\n");
+    }
+    ASSERT_FALSE(pa.freeBlock(b2));
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\ncreate 829 block\n");
-  }
-  b5 = pa.createBlock(829);
-  ASSERT_NE(b5, palloc::INV);
-  ASSERT_TRUE(checkStats(pa, 1, 4, 64, 961));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\ncreate 100 block\n");
+    }
+    b4 = pa.createBlock(100);
+    ASSERT_NE(b4, palloc::INV);
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\nfree 100 block\n");
-  }
-  ASSERT_TRUE(pa.freeBlock(b4));
-  ASSERT_TRUE(checkStats(pa, 2, 3, 164, 861));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\ncreate 400 block\n");
+    }
+    b5 = pa.createBlock(400);
+    ASSERT_NE(b5, palloc::INV);
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\nfree 1 block\n");
-  }
-  ASSERT_TRUE(pa.freeBlock(b3));
-  ASSERT_TRUE(checkStats(pa, 1, 2, 180, 845));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\nfree 100 block\n");
+    }
+    ASSERT_TRUE(pa.freeBlock(b4));
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\ngrow 16 block by 3\n");
-  }
-  ASSERT_TRUE(pa.growBlock(b1, 19));
-  ASSERT_TRUE(checkStats(pa, 1, 2, 177, 848));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\nfree 1 block\n");
+    }
+    ASSERT_TRUE(pa.freeBlock(b3));
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\ngrow 19 block by 178\n");
-  }
-  ASSERT_FALSE(pa.growBlock(b1, 197));
-  ASSERT_TRUE(checkStats(pa, 1, 2, 177, 848));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\ngrow 16 block by 3\n");
+    }
+    ASSERT_TRUE(pa.growBlock(b1, 19));
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\ngrow 19 block by 177\n");
-  }
-  ASSERT_TRUE(pa.growBlock(b1, 196));
-  ASSERT_TRUE(checkStats(pa, 0, 2, 0, 1025));
-  pa.verify(verbose);
+    if (verbose) {
+      printf("\ngrow 19 block by 400\n");
+    }
+    ASSERT_FALSE(pa.growBlock(b1, 419));
+    pa.verify(verbose);
 
-  if (verbose) {
-    printf("\nshrink 196 block by 150\n");
+    if (verbose) {
+      printf("\ngrow 19 block by 150\n");
+    }
+    ASSERT_TRUE(pa.growBlock(b1, 169));
+    pa.verify(verbose);
+
+    if (verbose) {
+      printf("\nshrink 196 block by 150\n");
+    }
+    ASSERT_TRUE(pa.shrinkBlock(b1, 46));
+    pa.verify(verbose);
   }
-  ASSERT_TRUE(pa.shrinkBlock(b1, 46));
-  ASSERT_TRUE(checkStats(pa, 1, 2, 150, 875));
-  pa.verify(verbose);
 }
